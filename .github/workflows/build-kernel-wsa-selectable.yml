@@ -1,0 +1,126 @@
+name: Build Kernel - WSA selectable
+
+on:
+  push:
+    branches: ["main", "ci", "checkci"]
+    paths:
+      - ".github/workflows/build-kernel-wsa.yml"
+      - ".github/workflows/wsa-kernel.yml"
+      - "kernel/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/build-kernel-wsa.yml"
+      - ".github/workflows/wsa-kernel.yml"
+      - "kernel/**"
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      build_x86_64:
+        description: "Build x86_64"
+        type: boolean
+        default: false
+      build_arm64:
+        description: "Build arm64"
+        type: boolean
+        default: false
+
+      build_5_15_94_2:
+        description: "Build 5.15.94.2"
+        type: boolean
+        default: false
+      build_5_15_104_1:
+        description: "Build 5.15.104.1"
+        type: boolean
+        default: false
+      build_5_15_104_2:
+        description: "Build 5.15.104.2"
+        type: boolean
+        default: false
+      build_5_15_104_3:
+        description: "Build 5.15.104.3"
+        type: boolean
+        default: false
+      build_5_15_104_4:
+        description: "Build 5.15.104.4"
+        type: boolean
+        default: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      arches: ${{ steps.select.outputs.arches }}
+      versions: ${{ steps.select.outputs.versions }}
+
+    steps:
+      - name: Select build targets
+        id: select
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            arches=()
+            if [ "${{ inputs.build_x86_64 }}" = "true" ]; then
+              arches+=("x86_64")
+            fi
+            if [ "${{ inputs.build_arm64 }}" = "true" ]; then
+              arches+=("arm64")
+            fi
+
+            versions=()
+            if [ "${{ inputs.build_5_15_94_2 }}" = "true" ]; then
+              versions+=("5.15.94.2")
+            fi
+            if [ "${{ inputs.build_5_15_104_1 }}" = "true" ]; then
+              versions+=("5.15.104.1")
+            fi
+            if [ "${{ inputs.build_5_15_104_2 }}" = "true" ]; then
+              versions+=("5.15.104.2")
+            fi
+            if [ "${{ inputs.build_5_15_104_3 }}" = "true" ]; then
+              versions+=("5.15.104.3")
+            fi
+            if [ "${{ inputs.build_5_15_104_4 }}" = "true" ]; then
+              versions+=("5.15.104.4")
+            fi
+
+            if [ ${#arches[@]} -eq 0 ]; then
+              echo "::error::No architecture selected. Please check at least one architecture."
+              exit 1
+            fi
+
+            if [ ${#versions[@]} -eq 0 ]; then
+              echo "::error::No kernel version selected. Please check at least one version."
+              exit 1
+            fi
+
+            printf 'arches=%s\n' "$(printf '%s\n' "${arches[@]}" | jq -R . | jq -s -c)" >> "$GITHUB_OUTPUT"
+            printf 'versions=%s\n' "$(printf '%s\n' "${versions[@]}" | jq -R . | jq -s -c)" >> "$GITHUB_OUTPUT"
+
+          else
+            printf 'arches=%s\n' '["x86_64","arm64"]' >> "$GITHUB_OUTPUT"
+            printf 'versions=%s\n' '["5.15.94.2","5.15.104.1","5.15.104.2","5.15.104.3","5.15.104.4"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: prepare
+    if: github.event_name != 'pull_request' && github.ref != 'refs/heads/checkci'
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.prepare.outputs.arches) }}
+        version: ${{ fromJSON(needs.prepare.outputs.versions) }}
+    uses: ./.github/workflows/wsa-kernel.yml
+    with:
+      arch: ${{ matrix.arch }}
+      version: ${{ matrix.version }}
+
+  check_build:
+    if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/checkci'
+    uses: ./.github/workflows/wsa-kernel.yml
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+    with:
+      arch: ${{ matrix.arch }}
+      version: "5.15.104.4"
